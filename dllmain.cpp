@@ -96,6 +96,37 @@ static MsvcWstring* FindWstring(uint8_t* dataBase, size_t dataSize, const wchar_
     return nullptr;
 }
 
+static MsvcWstring* FindWstringPrefix(uint8_t* dataBase, size_t dataSize, const wchar_t* prefix)
+{
+    size_t prefixLen = wcslen(prefix);
+    size_t prefixBytes = prefixLen * sizeof(wchar_t);
+
+    for (size_t i = 0; i + sizeof(MsvcWstring) <= dataSize; i += sizeof(uintptr_t))
+    {
+        auto* wstr = reinterpret_cast<MsvcWstring*>(dataBase + i);
+
+        if (wstr->size < prefixLen)
+            continue;
+
+        if (wstr->size > 7)
+        {
+            if (!wstr->ptr) continue;
+            __try
+            {
+                if (memcmp(wstr->ptr, prefix, prefixBytes) == 0)
+                    return wstr;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
+        else
+        {
+            if (memcmp(wstr->buf, prefix, prefixBytes) == 0)
+                return wstr;
+        }
+    }
+    return nullptr;
+}
+
 static bool PatchString(uint8_t* dataBase, size_t dataSize,
     const wchar_t* needle, const char* name)
 {
@@ -124,10 +155,19 @@ static bool PatchVersionLines()
         return false;
     }
 
-    // Update these if the displayed strings ever change
     bool ok = true;
-    ok &= PatchString(dataBase, dataSize, L"Minecraft LCE d7596aa", "VERSION_STRING");
+
+    MsvcWstring* versionStr = FindWstringPrefix(dataBase, dataSize, L"Minecraft LCE ");
+    if (!versionStr)
+    {
+        OutputDebugStringA("[LceAntiWatermark] wstring not found: VERSION_STRING\n");
+        ok = false;
+    }
+    else
+        ok &= ZeroWstring(versionStr);
+
     ok &= PatchString(dataBase, dataSize, L"smartcmd/MinecraftConsoles/main", "BRANCH_STRING");
+
     return ok;
 }
 
